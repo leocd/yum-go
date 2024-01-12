@@ -1,171 +1,123 @@
 package server
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"flag"
-	"fmt"
-	"io"
-	"log"
-	"net"
-	"net/http"
-	"os"
-	"runtime/debug"
-	"strings"
+        "context"
+        "errors"
+        "flag"
+        "fmt"
+        "log"
+        "net"
+        "net/http"
+        "os"
+        "strings"
 )
 
 func Main() int {
-	programName := os.Args[0]
-	errorLog := log.New(os.Stderr, "", log.LstdFlags)
-	serveLog := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+        programName := os.Args[0]
+        errorLog := log.New(os.Stderr, "", log.LstdFlags)
+        serveLog := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
 
-	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	flags.Usage = func() {
-		out := flags.Output()
-		fmt.Fprintf(out, "Usage: %v [dir]\n\n", programName)
-		fmt.Fprint(out, "  [dir] is optional; if not passed, '.' is used.\n\n")
-		fmt.Fprint(out, "  By default, the server listens on localhost:8080. Both the\n")
-		fmt.Fprint(out, "  host and the port are configurable with flags. Set the host\n")
-		fmt.Fprint(out, "  to something else if you want the server to listen on a\n")
-		fmt.Fprint(out, "  specific network interface. Setting the port to 0 will\n")
-		fmt.Fprint(out, "  instruct the server to pick a random available port.\n\n")
-		flags.PrintDefaults()
-	}
+        flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+        flags.Usage = func() {
+                out := flags.Output()
+                fmt.Fprintf(out, "Usage: %v [args] [dir]\n\n", programName)
+                fmt.Fprint(out, "  dir为需要开启web服务的目录，是可选参数; 如果没有设置, 将使用'.'作为默认值。\n")
+                fmt.Fprint(out, "  如果需要指定dir，需要将其作为最后一个参数。\n\n")
+                fmt.Fprint(out, "  默认情况下，yum-go将监听0.0.0.0:8080。\n")
+                fmt.Fprint(out, "  host(-h)和port(-p)均可使用参数更改。\n")
+                fmt.Fprint(out, "  如果需要yum-go监听特定IP，请使用-h参数指定。\n")
+                fmt.Fprint(out, "  如果需要yum-go监听指定端口，请使用-p参数指定。\n")
+                fmt.Fprint(out, "  如果-p参数设置为0，将随机监听一个未被占用的端口。\n\n")
+                flags.PrintDefaults()
+        }
 
-	versionFlag := flags.Bool("v", false, "print version and exit")
-	hostFlag := flags.String("host", "localhost", "specific host to listen on")
-	portFlag := flags.String("port", "8080", "port to listen on; if 0, a random available port will be used")
-	addrFlag := flags.String("addr", "localhost:8080", "full address (host:port) to listen on; don't use this if 'port' or 'host' are set")
-	silentFlag := flags.Bool("silent", false, "suppress messages from output (reporting only errors)")
-	corsFlag := flags.Bool("cors", false, "enable CORS by returning Access-Control-Allow-Origin header")
-	tlsFlag := flags.Bool("tls", false, "enable HTTPS serving with TLS")
-	certFlag := flags.String("certfile", "cert.pem", "TLS certificate file to use with -tls")
-	keyFlag := flags.String("keyfile", "key.pem", "TLS key file to use with -tls")
+        hostFlag := flags.String("h", "0.0.0.0", "指定yum-go需要监听的ip")
+        portFlag := flags.String("p", "8080", "指定yum-go需要监听的端口，如果设置为0，将随机监听一个未被占用的端口")
+        addrFlag := flags.String("addr", "0.0.0.0:8080", "完整的监听信息(host:port)，请不要与-h或者-p一起使用")
 
-	flags.Parse(os.Args[1:])
+        flags.Parse(os.Args[1:])
 
-	if *versionFlag {
-		if buildInfo, ok := debug.ReadBuildInfo(); ok {
-			fmt.Printf("%v %v\n", programName, buildInfo.Main.Version)
-		} else {
-			errorLog.Printf("version info unavailable! run 'go version -m %v'", programName)
-		}
-		os.Exit(0)
-	}
+        if len(flags.Args()) > 1 {
+                errorLog.Println("Error: 输入了太多的参数")
+                flags.Usage()
+                os.Exit(1)
+        }
 
-	if *silentFlag {
-		serveLog.SetOutput(io.Discard)
-	}
+        rootDir := "."
+        if len(flags.Args()) == 1 {
+                rootDir = flags.Args()[0]
+        }
 
-	if len(flags.Args()) > 1 {
-		errorLog.Println("Error: too many command-line arguments")
-		flags.Usage()
-		os.Exit(1)
-	}
+        allSetFlags := flagsSet(flags)
+        if allSetFlags["addr"] && (allSetFlags["host"] || allSetFlags["port"]) {
+                errorLog.Println("Error: 使用addr参数时，不可使用h或p参数")
+                flags.Usage()
+                os.Exit(1)
+        }
 
-	rootDir := "."
-	if len(flags.Args()) == 1 {
-		rootDir = flags.Args()[0]
-	}
+        var addr string
+        if allSetFlags["addr"] {
+                addr = *addrFlag
+        } else {
+                addr = *hostFlag + ":" + *portFlag
+        }
+        srv := &http.Server{
+                Addr: addr,
+        }
 
-	allSetFlags := flagsSet(flags)
-	if allSetFlags["addr"] && (allSetFlags["host"] || allSetFlags["port"]) {
-		errorLog.Println("Error: if -addr is set, -host and -port must remain unset")
-		flags.Usage()
-		os.Exit(1)
-	}
+        // 一个简单的关闭server的方法
+        shutdownCh := make(chan struct{})
+        go func() {
+                <-shutdownCh
+                srv.Shutdown(context.Background())
+        }()
 
-	var addr string
-	if allSetFlags["addr"] {
-		addr = *addrFlag
-	} else {
-		addr = *hostFlag + ":" + *portFlag
-	}
-	srv := &http.Server{
-		Addr: addr,
-		TLSConfig: &tls.Config{
-			MinVersion:               tls.VersionTLS13,
-			PreferServerCipherSuites: true,
-		},
-	}
+        mux := http.NewServeMux()
+        mux.HandleFunc("/__internal/__shutdown", func(w http.ResponseWriter, r *http.Request) {
+                r.ParseForm()
+                Key:=r.FormValue("Key")
+                if Key != "" && Key == "shutdown_yum_go" {
+                        w.WriteHeader(http.StatusOK)
+                        defer close(shutdownCh)
+                } else {
+                        http.Error(w, "403 Forbidden", http.StatusForbidden)
+                }
+        })
 
-	// To shut the server down cleanly.
-	shutdownCh := make(chan struct{})
-	go func() {
-		<-shutdownCh
-		srv.Shutdown(context.Background())
-	}()
+        fileHandler := serveLogger(serveLog, http.FileServer(http.Dir(rootDir)))
+        mux.Handle("/", fileHandler)
+        srv.Handler = mux
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/__internal/__shutdown", func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		Key:=r.FormValue("Key")
-		if Key != "" && Key == "shutdown_yum_go" {
-			w.WriteHeader(http.StatusOK)
-			defer close(shutdownCh)
-		} else {
-			http.Error(w, "403 Forbidden", http.StatusForbidden)
-		}
-	})
+        // 当端口设置为0时，随机分配一个可使用的端口
+        listener, err := net.Listen("tcp", addr)
+        if err != nil {
+                errorLog.Println(err)
+                return 1
+        }
+        scheme := "http://"
+        serveLog.Printf("Serving directory %q on %v%v", rootDir, scheme, listener.Addr())
 
-	fileHandler := serveLogger(serveLog, http.FileServer(http.Dir(rootDir)))
-	if *corsFlag {
-		fileHandler = enableCORS(fileHandler)
-	}
-	mux.Handle("/", fileHandler)
-	srv.Handler = mux
-
-	// Use an explicit listener to access .Addr() when serving on port :0
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		errorLog.Println(err)
-		return 1
-	}
-	scheme := "http://"
-	if *tlsFlag {
-		scheme = "https://"
-	}
-	serveLog.Printf("Serving directory %q on %v%v", rootDir, scheme, listener.Addr())
-
-	if *tlsFlag {
-		err = srv.ServeTLS(listener, *certFlag, *keyFlag)
-	} else {
-		err = srv.Serve(listener)
-	}
-
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		errorLog.Println("Error in Serve:", err)
-		return 1
-	} else {
-		return 0
-	}
+        err = srv.Serve(listener)
+        if err != nil && !errors.Is(err, http.ErrServerClosed) {
+                errorLog.Println("Error in Serve:", err)
+                return 1
+        } else {
+                return 0
+        }
 }
 
-// flagsSet returns a set of all the flags what were actually set on the
-// command line.
 func flagsSet(flags *flag.FlagSet) map[string]bool {
-	s := make(map[string]bool)
-	flags.Visit(func(f *flag.Flag) {
-		s[f.Name] = true
-	})
-	return s
+        s := make(map[string]bool)
+        flags.Visit(func(f *flag.Flag) {
+                s[f.Name] = true
+        })
+        return s
 }
 
-// serveLogger is a logging middleware for serving. It generates logs for
-// requests sent to the server.
 func serveLogger(logger *log.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		remoteHost, _, _ := strings.Cut(r.RemoteAddr, ":")
-		logger.Printf("%v %v %v\n", remoteHost, r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
-	})
-}
-
-// enableCORS adds a CORS response header to allow cross-origin requests.
-func enableCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		next.ServeHTTP(w, r)
-	})
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                remoteHost, _, _ := strings.Cut(r.RemoteAddr, ":")
+                logger.Printf("%v %v %v\n", remoteHost, r.Method, r.URL.Path)
+                next.ServeHTTP(w, r)
+        })
 }
