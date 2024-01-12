@@ -97,11 +97,11 @@ func Main() int {
 		srv.Shutdown(context.Background())
 	}()
 
-	testingKey := os.Getenv("TESTING_KEY")
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/__internal/__shutdown", func(w http.ResponseWriter, r *http.Request) {
-		if testingKey != "" && r.Header.Get("shutdown_yum_go") == testingKey {
+		r.ParseForm()
+		Key:=r.FormValue("Key")
+		if Key != "" && Key == "shutdown_yum_go" {
 			w.WriteHeader(http.StatusOK)
 			defer close(shutdownCh)
 		} else {
