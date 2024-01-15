@@ -16,11 +16,9 @@ func Main() int {
         programName := os.Args[0]
         logFile, err := os.OpenFile("./YumGo.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
         if err != nil {
-                fmt.Println("open log file failed, err:", err)
+                fmt.Println("打开日志文件失败：", err)
                 return
         }
-        log.SetOutput(logFile)
-        log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
         errorLog := log.New(os.Stderr, "", log.LstdFlags)
         serveLog := log.New(io.MultiWriter(logFile, os.Stdout), "", log.LstdFlags|log.Lmicroseconds)
 
