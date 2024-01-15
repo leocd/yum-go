@@ -9,6 +9,8 @@ import (
         "net"
         "net/http"
         "os"
+	"io"
+	"io/ioutil"
         "strings"
 )
 
