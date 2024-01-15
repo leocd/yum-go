@@ -10,7 +10,6 @@ import (
         "net/http"
         "os"
 	"io"
-	"io/ioutil"
         "strings"
 )
 
