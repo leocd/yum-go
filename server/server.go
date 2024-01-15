@@ -20,7 +20,7 @@ func Main() int {
         flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
         flags.Usage = func() {
                 out := flags.Output()
-                fmt.Fprintf(out, "Author: Leo Lou<ju.lou@msxf.com>\n\n")
+                fmt.Fprintf(out, "Author: Leo Lou<leo@leocd.com>\n\n")
                 fmt.Fprint(out, "Usage: %v [args] [dir]\n", programName)
                 fmt.Fprint(out, "  可不指定任何参数，在此情况下，yum-go将监听0.0.0.0:8080。\n")
                 fmt.Fprint(out, "  dir为需要开启web服务的目录，需要放在最后；如未指定, 将使用程序所在目录。\n")
