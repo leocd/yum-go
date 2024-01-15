@@ -14,13 +14,20 @@ import (
 
 func Main() int {
         programName := os.Args[0]
+        logFile, err := os.OpenFile("./YumGo.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+        if err != nil {
+                fmt.Println("open log file failed, err:", err)
+                return
+        }
+        log.SetOutput(logFile)
+        log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
         errorLog := log.New(os.Stderr, "", log.LstdFlags)
-        serveLog := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+        serveLog := log.New(io.MultiWriter(logFile, os.Stdout), "", log.LstdFlags|log.Lmicroseconds)
 
         flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
         flags.Usage = func() {
                 out := flags.Output()
-                fmt.Fprintf(out, "Author: Leo Lou<leo@leocd.com>\n\n")
+                fmt.Fprintf(out, "Author: Leo Lou<ju.lou@msxf.com>\n\n")
                 fmt.Fprint(out, "Usage: %v [args] [dir]\n", programName)
                 fmt.Fprint(out, "  可不指定任何参数，在此情况下，yum-go将监听0.0.0.0:8080。\n")
                 fmt.Fprint(out, "  dir为需要开启web服务的目录，需要放在最后；如未指定, 将使用程序所在目录。\n")
@@ -113,12 +120,6 @@ func flagsSet(flags *flag.FlagSet) map[string]bool {
 func serveLogger(logger *log.Logger, next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 remoteHost, _, _ := strings.Cut(r.RemoteAddr, ":")
-                logFile, err := os.OpenFile("./go-yum-go.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-                if err != nil {
-                        fmt.Println("打开日志文件失败：", err)
-                return
-                }
-                logger.SetOutput(logFile)
                 logger.Printf("%v %v %v\n", remoteHost, r.Method, r.URL.Path)
                 next.ServeHTTP(w, r)
         })
