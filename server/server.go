@@ -20,19 +20,15 @@ func Main() int {
         flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
         flags.Usage = func() {
                 out := flags.Output()
-                fmt.Fprintf(out, "Usage: %v [args] [dir]\n\n", programName)
-                fmt.Fprint(out, "  dir为需要开启web服务的目录，是可选参数; 如果没有设置, 将使用'.'作为默认值。\n")
-                fmt.Fprint(out, "  如果需要指定dir，需要将其作为最后一个参数。\n\n")
-                fmt.Fprint(out, "  默认情况下，yum-go将监听0.0.0.0:8080。\n")
-                fmt.Fprint(out, "  host(-h)和port(-p)均可使用参数更改。\n")
-                fmt.Fprint(out, "  如果需要yum-go监听特定IP，请使用-h参数指定。\n")
-                fmt.Fprint(out, "  如果需要yum-go监听指定端口，请使用-p参数指定。\n")
-                fmt.Fprint(out, "  如果-p参数设置为0，将随机监听一个未被占用的端口。\n\n")
+                fmt.Fprintf(out, "Author: Leo Lou<ju.lou@msxf.com>\n\n")
+                fmt.Fprint(out, "Usage: %v [args] [dir]\n", programName)
+                fmt.Fprint(out, "  可不指定任何参数，在此情况下，yum-go将监听0.0.0.0:8080。\n")
+                fmt.Fprint(out, "  dir为需要开启web服务的目录，需要放在最后；如未指定, 将使用程序所在目录。\n")
                 flags.PrintDefaults()
         }
 
-        hostFlag := flags.String("h", "0.0.0.0", "指定yum-go需要监听的ip")
-        portFlag := flags.String("p", "8080", "指定yum-go需要监听的端口，如果设置为0，将随机监听一个未被占用的端口")
+        hostFlag := flags.String("h", "0.0.0.0", "指定监听的ip，如未指定，默认监听0.0.0.0")
+        portFlag := flags.String("p", "8080", "指定监听的端口，如未指定，默认监听8080；如果设置为0，将随机分配一个端口")
         addrFlag := flags.String("addr", "0.0.0.0:8080", "完整的监听信息(host:port)，请不要与-h或者-p一起使用")
 
         flags.Parse(os.Args[1:])
@@ -117,6 +113,12 @@ func flagsSet(flags *flag.FlagSet) map[string]bool {
 func serveLogger(logger *log.Logger, next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 remoteHost, _, _ := strings.Cut(r.RemoteAddr, ":")
+                logFile, err := os.OpenFile("./go-yum-go.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+                if err != nil {
+                        fmt.Println("打开日志文件失败：", err)
+                return
+                }
+                logger.SetOutput(logFile)
                 logger.Printf("%v %v %v\n", remoteHost, r.Method, r.URL.Path)
                 next.ServeHTTP(w, r)
         })
